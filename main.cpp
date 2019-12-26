@@ -20,7 +20,7 @@ int main(int argc, char** argv) {
   ProcessExecutor executor{&cv};
 
   executor.setEventCallback(callback_fn);
-  executor.request("/data/c/learncpp/executor/test_application.sh");
+  executor.request("./test_application.sh");
 
   return 0;
 }
