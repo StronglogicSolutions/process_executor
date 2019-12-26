@@ -13,11 +13,8 @@ std::function<std::string(std::string)> callback_fn([](std::string value) {
   return value;
 });
 
-// Rubbish config
-std::vector<char> cv{'a', 'b', 'c'};
-
 int main(int argc, char** argv) {
-  ProcessExecutor executor{&cv};
+  ProcessExecutor executor{};
 
   executor.setEventCallback(callback_fn);
   executor.request("./test_application.sh");

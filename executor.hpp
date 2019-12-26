@@ -4,9 +4,8 @@
 #include <string>
 #include <string_view>
 
-#include "execxx.h"
+#include "execxx.hpp"
 /** Function Types */
-typedef std::function<bool()> Action;
 typedef std::function<std::string(std::string)> EventCallback;
 /** Manager Interface */
 class ProcessManager {
@@ -18,42 +17,46 @@ class ProcessManager {
 /** Process Executor - implements Manager interface */
 class ProcessExecutor : public ProcessManager {
  public:
+  /** Daemon to run process */
   class ProcessDaemon {
    public:
-    /** Daemon to run process */
-    ProcessDaemon(std::string_view path, Action action = NULL)
-        : m_path(std::move(path)), m_action(std::move(action)) {}
-    // Disable copying
+    /** Constructor/Destructor */
+    ProcessDaemon(std::string_view path) : m_path(std::move(path)) {}
+    ~ProcessDaemon(){/* Clean up */};
+    /** Disable copying */
     ProcessDaemon(const ProcessDaemon&) = delete;
+    ProcessDaemon(ProcessDaemon&&) = delete;
     ProcessDaemon& operator=(const ProcessDaemon&) = delete;
+    ProcessDaemon& operator=(ProcessDaemon&&) = delete;
+
     /** Impl */
-    bool run_() {
+    std::string run_() {
       std::vector<std::string> v_args{};
       v_args.push_back(std::string(m_path));
       v_args.push_back(std::string("--test"));
       /* qx wraps calls to fork() and exec() */
-      std::string returned_string = qx(v_args);
-      std::cout << "Returned from process: " << returned_string << std::endl;
-      if (returned_string.size() > 0) {
-        return true;
-      }
-      return false;
+      return std::string(qx(v_args));
     }
     /** Uses async and future to call implementation*/
-    bool run() {
-      std::future<bool> result_future = std::async(&ProcessDaemon::run_, this);
-      bool result = result_future.get();
+    std::string run() {
+      std::future<std::string> result_future =
+          std::async(&ProcessDaemon::run_, this);
+      std::string result = result_future.get();
       return result;
     }
 
    private:
     std::string_view m_path;
-    Action m_action;
   };
   /** Constructor / Destructor */
-  ProcessExecutor(void* config) : m_config(config) {}
+  ProcessExecutor() {}
   ~ProcessExecutor() { /* Kill processes? Log for processes? */
   }
+  /** Disable copying */
+  ProcessExecutor(const ProcessExecutor&) = delete;
+  ProcessExecutor(ProcessExecutor&&) = delete;
+  ProcessExecutor& operator=(const ProcessExecutor&) = delete;
+  ProcessExecutor& operator=(ProcessExecutor&&) = delete;
   /** Set the callback */
   virtual void setEventCallback(EventCallback f) override { m_callback = f; }
   /** Callback to be used upon process completion */
@@ -64,10 +67,12 @@ class ProcessExecutor : public ProcessManager {
   virtual void request(std::string_view path) override {
     if (path[0] != '\0') {
       ProcessDaemon* pd_ptr = new ProcessDaemon(path);
-      auto result = pd_ptr->run();
-      if (result) {
-        std::string status_report{path};
-        status_report += " successfully completed";
+      auto process_std_out = pd_ptr->run();
+      if (!process_std_out.empty()) {
+        std::string status_report{"Result from "};
+        status_report += path;
+        status_report += "\n";
+        status_report += process_std_out;
         notifyProcessEvent(status_report);
       }
     }
