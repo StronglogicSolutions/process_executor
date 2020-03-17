@@ -17,7 +17,7 @@ int main(int argc, char** argv) {
   ProcessExecutor executor{};
 
   executor.setEventCallback(callback_fn);
-  executor.request("./test_application.sh");
+  executor.request("./test_application.sh", {"arg1", "arg2"});
 
   return 0;
 }
