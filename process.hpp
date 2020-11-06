@@ -7,6 +7,7 @@
 #include <ctime>
 #include <libgen.h>
 #include <cstring>
+#include <vector>
 
 struct ProcessResult {
   std::string output;
