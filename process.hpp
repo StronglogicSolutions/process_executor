@@ -4,11 +4,20 @@
 #include <sys/wait.h>
 #include <sys/poll.h>
 #include <unistd.h>
+#include <ctime>
+#include <libgen.h>
+#include <cstring>
 
 struct ProcessResult {
   std::string output;
   bool error = false;
 };
+
+inline const std::string get_executable_cwd() {
+  char* path = realpath("/proc/self/exe", NULL);
+  char* name = basename(path);
+  return std::string{path, path + strlen(path) - strlen(name)};
+}
 
 /**
  * Child process output buffer
