@@ -14,7 +14,7 @@ struct ProcessResult {
   bool error = false;
 };
 
-inline const std::string get_executable_cwd() {
+inline const std::string get_current_working_directory() {
   char* path = realpath("/proc/self/exe", NULL);
   char* name = basename(path);
   return std::string{path, path + strlen(path) - strlen(name)};
