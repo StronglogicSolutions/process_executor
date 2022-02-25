@@ -3,14 +3,13 @@
 
 #include "process.hpp"
 
-int main(int argc, char** argv) {
+int main(int argc, char** argv)
+{
 
-  ProcessResult result = qx({"./test_application.sh"});
+  kiq::ProcessResult result = kiq::qx({"./test_application.sh"});
 
-  if (result.error) {
-    std::cout << "Process failed" << std::endl;
-    return 1;
-  }
+  if (result.error)
+    throw std::runtime_error{"Process failed"};
 
   std::cout << "Result is\n\n" << result.output << std::endl;
 
