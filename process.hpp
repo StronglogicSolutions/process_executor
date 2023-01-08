@@ -37,7 +37,7 @@ const uint32_t buf_size{32768};
  * @returns [out]
  *
  */
-std::string readFd(int fd)
+static std::string readFd(int fd)
 {
   char buffer[buf_size];
   std::string s{};
@@ -63,7 +63,7 @@ std::string readFd(int fd)
  * @returns [out]
  */
 [[ maybe_unused ]]
-ProcessResult qx(    std::vector<std::string> args,
+static ProcessResult qx(    std::vector<std::string> args,
                const std::string&             working_directory = "")
 {
   int stdout_fds[2];
