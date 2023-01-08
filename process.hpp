@@ -10,10 +10,6 @@
 #include <cstring>
 
 namespace kiq {
-namespace {
-/**
- * ProcessResult
- */
 struct ProcessResult {
   std::string output;
   bool error = false;
@@ -183,5 +179,4 @@ ProcessResult qx(    std::vector<std::string> args,
 
   return result;
 }
-} // namespace (anonymous)
 } // ns kiq
