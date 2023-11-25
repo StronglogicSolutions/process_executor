@@ -6,13 +6,15 @@
 #include <iostream>
 #include <string>
 #include <vector>
-#include <future>
 #include <cstring>
 
 namespace kiq {
-struct ProcessResult {
+using args_t = std::vector<std::string>;
+struct ProcessResult
+{
   std::string output;
-  bool error = false;
+  bool        error{false};
+  int         termination_code{0};
 };
 
 static const std::string get_current_working_directory()
@@ -26,7 +28,7 @@ static const std::string get_current_working_directory()
  * Child process output buffer
  * 32k
  */
-const uint32_t buf_size{32768};
+static const uint32_t buf_size{32768};
 
 /**
  * readFd
@@ -40,31 +42,23 @@ const uint32_t buf_size{32768};
 static std::string readFd(int fd)
 {
   char buffer[buf_size];
-  std::string s{};
-  ssize_t r{};
+  std::string s;
+  ssize_t r;
   do
   {
     r = read(fd, buffer, buf_size);
-    if (r > 0) {
+    if (r > 0)
       s.append(buffer, r);
-    }
   }
   while (r > 0);
   return s;
 }
-
-/**
- * qx
- *
- * Function to fork a child process, execute an application and return the stdout or stderr
- *
- * @param   [in]
- * @param   [in]
- * @returns [out]
- */
+//--------------------------------------------------------------------
 [[ maybe_unused ]]
-static ProcessResult qx(    std::vector<std::string> args,
-               const std::string&             working_directory = "")
+static ProcessResult qx(const args_t&      args,
+                        int                timeout_sec       = 30,
+                        bool               kill_on_timeout   = false,
+                        const std::string& working_directory = "")
 {
   int stdout_fds[2];
   int stderr_fds[2];
@@ -96,28 +90,8 @@ static ProcessResult qx(    std::vector<std::string> args,
   close(stdout_fds[1]);
   close(stderr_fds[1]);
 
-  ProcessResult result{};
-
-  std::clock_t start_time = std::clock();
-  int          ret{};
-  int          status{};
-
-  for (;;)
-  {
-    ret = waitpid(pid, &status, (WNOHANG | WUNTRACED | WCONTINUED));
-
-    if (!ret) break;
-
-    if ((std::clock() - start_time) > 30)
-    {
-      kill(pid, SIGKILL);
-      result.error  = true;
-      result.output = "Child process timed out";
-      return result;
-    }
-  }
-
-  pollfd poll_fds[2]{
+  ProcessResult result;
+  pollfd        poll_fds[2] {
     pollfd{
       .fd      = stdout_fds[0] & 0xFF,
       .events  = POLL_OUT | POLL_ERR | POLL_IN,
@@ -129,54 +103,74 @@ static ProcessResult qx(    std::vector<std::string> args,
       .revents = short{0}
     }};
 
-  for (;;)
+  const auto timeout     = timeout_sec * 1000;
+  const int  poll_result = poll(poll_fds, 2, timeout);
+  if (!poll_result)
   {
-    int poll_result = poll(poll_fds, 2, 30000);
+    if (timeout)
+    {
+      std::cerr << "Failed to poll file descriptor after " << timeout << std::endl;
 
-    if (!poll_result)
-      std::cerr << "Failed to poll file descriptor" << std::endl;
+      if (kill_on_timeout)
+        kill(pid, SIGKILL);
 
+      result.error  = true;
+      result.output = "Child process timed out";
+    }
+    else
+      result.output = "Non-block poll() returned immediately with no results";
+  }
+  else
+  if (poll_result == -1)
+    std::cerr << "Errno while calling poll(): " << errno << std::endl;
+  else
+  if (poll_result)
+  {
     if (poll_fds[1].revents & POLLIN)
     {
       result.output = readFd(poll_fds[1].fd);;
       result.error  = true;
-      break;
-    }
-    else
-    if (poll_fds[0].revents & POLLIN)
-    {
-
-      result.output = readFd(poll_fds[0].fd);
-      if (!result.output.empty())
-        break;
-      result.error = true;
     }
     else
     if (poll_fds[0].revents & POLLHUP)
     {
-      close(stdout_fds[0]);
-      close(stderr_fds[0]);
       result.error  = true;
       result.output = "Lost connection to forked process";
     }
-    else
-    {
-      kill(pid, SIGKILL);
-      result.error  = true;
-      result.output = "Child process timed out";
-    }
 
-    if (result.error)
-      break;
+    if (poll_fds[0].revents & POLLIN)
+    {
+
+      result.output = readFd(poll_fds[0].fd);
+      result.error  = result.output.empty();
+    }
   }
 
   close(stdout_fds[0]);
   close(stderr_fds[0]);
   close(stderr_fds[1]);
 
-  if (result.output.empty())
-    result.output = "Process returned no output";
+  int           status;
+  if (const pid_t wait_result = waitpid(pid, &status, (WNOHANG | WUNTRACED | WCONTINUED)); wait_result == -1)
+  {
+    std::cerr << "Error waiting for " << pid << "Errno: " << errno << std::endl;
+  }
+  else
+  if (!wait_result) // unchanged
+  {
+    if (result.output.empty())
+      result.output = "Forked process may not have completed";
+  }
+  else
+  {
+    if (WIFEXITED(status))
+      result.termination_code = WEXITSTATUS(status);
+    else
+    if (WIFSIGNALED(status))
+      result.output += "Child process terminated by signal: "  + std::to_string(WTERMSIG(status));
+  }
 
   return result;
 }
-} // ns kiq
+
+} //ns kiq
