@@ -112,7 +112,7 @@ static ProcessResult qx(const args_t&      args,
       std::cerr << "Failed to poll file descriptor after " << timeout << std::endl;
 
       if (kill_on_timeout)
-      kill(pid, SIGKILL);
+        kill(pid, SIGKILL);
 
       result.error  = true;
       result.output = "Child process timed out";
