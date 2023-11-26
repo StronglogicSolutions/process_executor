@@ -18,7 +18,8 @@ int main(int argc, char** argv)
 
   kiq::ProcessResult result  = process.get_value();
 
-  std::cout << "Result is\n\n" << result.output << std::endl;
+  std::cout << "Process ended with exit code " << process.exit_code() <<
+              "\n\nSTDOUT: \n"                 << result.output       << std::endl;
 
   return 0;
 }
