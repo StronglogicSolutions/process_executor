@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 #include <cstring>
+#include <cerrno>
 #include <future>
 #include <optional>
 
@@ -16,7 +17,7 @@ struct ProcessResult
   std::string output;
   bool        error{false};
   int         termination_code{0};
-
+  std::string err_msg;
 };
 
 using args_t     = std::vector<std::string>;
@@ -28,50 +29,39 @@ struct proc_wrap_t
   ProcessResult result;
   opt_fut_t     fut;
 };
-
+//--------------------------------------------------------------------
 static const std::string get_current_working_directory()
 {
-  char* path = realpath("/proc/self/exe", NULL);
-  char* name = basename(path);
-  return std::string{path, path + strlen(path) - strlen(name)};
+  std::string ret;
+  char        buffer[PATH_MAX];
+  if (getcwd(buffer, sizeof(buffer)) != nullptr)
+    ret = std::string(buffer);
+  return ret;
 }
-
-/**
- * Child process output buffer
- * 32k
- */
+//--------------------------------------------------------------------
 static const uint32_t buf_size{32768};
-
-/**
- * readFd
- *
- * Helper function to read output from a file descriptor
- *
- * @param   [in]
- * @returns [out]
- *
- */
-static std::string readFd(int fd)
+//--------------------------------------------------------------------
+static std::string read_fd(int fd)
 {
   char buffer[buf_size];
   std::string s;
   ssize_t r;
-  do
-  {
-    r = read(fd, buffer, buf_size);
-    if (r > 0)
-      s.append(buffer, r);
-  }
-  while (r > 0);
+
+  while (r = read(fd, buffer, buf_size) > 0)
+    s.append(buffer, r);
+
+  if (r < 0)
+    std::cerr << "Reading from fd returned error: " << std::strerror(errno) << std::endl;
+
   return s;
 }
 //--------------------------------------------------------------------
 [[ maybe_unused ]]
-static proc_wrap_t   qx(const args_t&      args,
-                        int                timeout_sec       = 30,
-                        bool               kill_on_timeout   = false,
-                        bool               handle_process    = true,
-                        const std::string& working_directory = "")
+static proc_wrap_t qx(const args_t&      args,
+                      int                timeout_sec       = 30,
+                      bool               kill_on_timeout   = false,
+                      bool               handle_process    = true,
+                      const std::string& working_directory = "")
 {
   int stdout_fds[2];
   int stderr_fds[2];
@@ -79,7 +69,6 @@ static proc_wrap_t   qx(const args_t&      args,
   pipe(stderr_fds);
 
   const pid_t pid = fork();
-
   if (!pid)                                       // Child
   {
     if (!working_directory.empty()) chdir(working_directory.c_str());
@@ -118,32 +107,29 @@ static proc_wrap_t   qx(const args_t&      args,
         .revents = short{0}
       }};
 
-    const auto timeout     = timeout_sec * 1000;
-    const int  poll_result = poll(poll_fds, 2, timeout);
-    if (!poll_result)
+    const auto timeout = timeout_sec * 1000;
+    if (const int poll_result = poll(poll_fds, 2, timeout); !poll_result)
     {
       if (timeout)
       {
-        std::cerr << "Failed to poll file descriptor after " << timeout << std::endl;
-
         if (kill_on_timeout)
           kill(pid, SIGKILL);
 
-        result.error  = true;
-        result.output = "Child process timed out";
+        result.error   = true;
+        result.err_msg = "Child process timed out";
       }
       else
         result.output = "Non-block poll() returned immediately with no results";
     }
     else
     if (poll_result == -1)
-      std::cerr << "Errno while calling poll(): " << errno << std::endl;
+      result.err_msg = "Errno while calling poll(): " + std::string(std::strerror(errno));
     else
     if (poll_result)
     {
       if (poll_fds[1].revents & POLLIN)
       {
-        result.output = readFd(poll_fds[1].fd);;
+        result.output = read_fd(poll_fds[1].fd);;
         result.error  = true;
       }
       else
@@ -155,21 +141,17 @@ static proc_wrap_t   qx(const args_t&      args,
 
       if (poll_fds[0].revents & POLLIN)
       {
-
-        result.output = readFd(poll_fds[0].fd);
+        result.output = read_fd(poll_fds[0].fd);
         result.error  = result.output.empty();
       }
     }
 
     close(stdout_fds[0]);
     close(stderr_fds[0]);
-    close(stderr_fds[1]);
 
-    int           status;
+    int status;
     if (const pid_t wait_result = waitpid(pid, &status, (WNOHANG | WUNTRACED | WCONTINUED)); wait_result == -1)
-    {
-      std::cerr << "Error waiting for " << pid << "Errno: " << errno << std::endl;
-    }
+      result.err_msg = "Error waiting for " + pid + std::string(". Error: " + std::string(std::strerror(errno)));
     else
     if (!wait_result) // unchanged
     {
