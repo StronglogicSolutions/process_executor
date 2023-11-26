@@ -7,14 +7,26 @@
 #include <string>
 #include <vector>
 #include <cstring>
+#include <future>
+#include <optional>
 
 namespace kiq {
-using args_t = std::vector<std::string>;
 struct ProcessResult
 {
   std::string output;
   bool        error{false};
   int         termination_code{0};
+
+};
+
+using args_t     = std::vector<std::string>;
+using proc_fut_t = std::future<ProcessResult>;
+using opt_fut_t  = std::optional<proc_fut_t>;
+
+struct proc_wrap_t
+{
+  ProcessResult result;
+  opt_fut_t     fut;
 };
 
 static const std::string get_current_working_directory()
@@ -55,9 +67,10 @@ static std::string readFd(int fd)
 }
 //--------------------------------------------------------------------
 [[ maybe_unused ]]
-static ProcessResult qx(const args_t&      args,
+static proc_wrap_t   qx(const args_t&      args,
                         int                timeout_sec       = 30,
                         bool               kill_on_timeout   = false,
+                        bool               handle_process    = true,
                         const std::string& working_directory = "")
 {
   int stdout_fds[2];
@@ -90,87 +103,99 @@ static ProcessResult qx(const args_t&      args,
   close(stdout_fds[1]);
   close(stderr_fds[1]);
 
-  ProcessResult result;
-  pollfd        poll_fds[2] {
-    pollfd{
-      .fd      = stdout_fds[0] & 0xFF,
-      .events  = POLL_OUT | POLL_ERR | POLL_IN,
-      .revents = short{0}
-    },
-    pollfd{
-      .fd      = stderr_fds[0] & 0xFF,
-      .events  = POLLHUP | POLLERR | POLLIN,
-      .revents = short{0}
-    }};
-
-  const auto timeout     = timeout_sec * 1000;
-  const int  poll_result = poll(poll_fds, 2, timeout);
-  if (!poll_result)
+  auto handler = [pid, &stdout_fds, &stderr_fds, timeout_sec, kill_on_timeout]
   {
-    if (timeout)
+    ProcessResult result;
+    pollfd        poll_fds[2] {
+      pollfd{
+        .fd      = stdout_fds[0] & 0xFF,
+        .events  = POLL_OUT | POLL_ERR | POLL_IN,
+        .revents = short{0}
+      },
+      pollfd{
+        .fd      = stderr_fds[0] & 0xFF,
+        .events  = POLLHUP | POLLERR | POLLIN,
+        .revents = short{0}
+      }};
+
+    const auto timeout     = timeout_sec * 1000;
+    const int  poll_result = poll(poll_fds, 2, timeout);
+    if (!poll_result)
     {
-      std::cerr << "Failed to poll file descriptor after " << timeout << std::endl;
+      if (timeout)
+      {
+        std::cerr << "Failed to poll file descriptor after " << timeout << std::endl;
 
-      if (kill_on_timeout)
-        kill(pid, SIGKILL);
+        if (kill_on_timeout)
+          kill(pid, SIGKILL);
 
-      result.error  = true;
-      result.output = "Child process timed out";
+        result.error  = true;
+        result.output = "Child process timed out";
+      }
+      else
+        result.output = "Non-block poll() returned immediately with no results";
     }
     else
-      result.output = "Non-block poll() returned immediately with no results";
-  }
-  else
-  if (poll_result == -1)
-    std::cerr << "Errno while calling poll(): " << errno << std::endl;
-  else
-  if (poll_result)
-  {
-    if (poll_fds[1].revents & POLLIN)
+    if (poll_result == -1)
+      std::cerr << "Errno while calling poll(): " << errno << std::endl;
+    else
+    if (poll_result)
     {
-      result.output = readFd(poll_fds[1].fd);;
-      result.error  = true;
+      if (poll_fds[1].revents & POLLIN)
+      {
+        result.output = readFd(poll_fds[1].fd);;
+        result.error  = true;
+      }
+      else
+      if (poll_fds[0].revents & POLLHUP)
+      {
+        result.error  = true;
+        result.output = "Lost connection to forked process";
+      }
+
+      if (poll_fds[0].revents & POLLIN)
+      {
+
+        result.output = readFd(poll_fds[0].fd);
+        result.error  = result.output.empty();
+      }
+    }
+
+    close(stdout_fds[0]);
+    close(stderr_fds[0]);
+    close(stderr_fds[1]);
+
+    int           status;
+    if (const pid_t wait_result = waitpid(pid, &status, (WNOHANG | WUNTRACED | WCONTINUED)); wait_result == -1)
+    {
+      std::cerr << "Error waiting for " << pid << "Errno: " << errno << std::endl;
     }
     else
-    if (poll_fds[0].revents & POLLHUP)
+    if (!wait_result) // unchanged
     {
-      result.error  = true;
-      result.output = "Lost connection to forked process";
+      if (result.output.empty())
+        result.output = "Forked process may not have completed";
     }
-
-    if (poll_fds[0].revents & POLLIN)
-    {
-
-      result.output = readFd(poll_fds[0].fd);
-      result.error  = result.output.empty();
-    }
-  }
-
-  close(stdout_fds[0]);
-  close(stderr_fds[0]);
-  close(stderr_fds[1]);
-
-  int           status;
-  if (const pid_t wait_result = waitpid(pid, &status, (WNOHANG | WUNTRACED | WCONTINUED)); wait_result == -1)
-  {
-    std::cerr << "Error waiting for " << pid << "Errno: " << errno << std::endl;
-  }
-  else
-  if (!wait_result) // unchanged
-  {
-    if (result.output.empty())
-      result.output = "Forked process may not have completed";
-  }
-  else
-  {
-    if (WIFEXITED(status))
-      result.termination_code = WEXITSTATUS(status);
     else
-    if (WIFSIGNALED(status))
-      result.output += "Child process terminated by signal: "  + std::to_string(WTERMSIG(status));
-  }
+    {
+      if (WIFEXITED(status))
+        result.termination_code = WEXITSTATUS(status);
+      else
+      if (WIFSIGNALED(status))
+        result.output += "Child process terminated by signal: "  + std::to_string(WTERMSIG(status));
+    }
 
-  return result;
+    return result;
+  };
+
+  proc_wrap_t process;
+
+  if (handle_process)
+    process.result = handler();
+  else
+    process.fut    = opt_fut_t{std::async(std::launch::async, handler)};
+
+  return process;
 }
 
 } //ns kiq
