@@ -56,7 +56,6 @@ static std::string read_fd(int fd)
   return s;
 }
 //--------------------------------------------------------------------
-[[ maybe_unused ]]
 static proc_wrap_t qx(const args_t&      args,
                       int                timeout_sec       = 30,
                       bool               kill_on_timeout   = false,
@@ -179,5 +178,60 @@ static proc_wrap_t qx(const args_t&      args,
 
   return process;
 }
+//--------------------------------
+//--------------------------------
+//--------------------------------
+struct process
+{
+
+  process(const args_t&      args,
+          int                timeout_sec       = 30,
+          bool               kill_on_timeout   = false,
+          bool               handle_process    = true,
+          const std::string& working_directory = "")
+  {
+    process_ = qx(args, timeout_sec, kill_on_timeout, handle_process, working_directory);
+  }
+  //--------------------------------
+  bool has_error() const
+  {
+    return process_.result.error || !process_.result.err_msg.empty();
+  }
+  //--------------------------------
+  bool has_work() const
+  {
+    return process_.result.output.empty() && process_.fut.has_value();
+  }
+  //--------------------------------
+  bool is_ready() const
+  {
+    return !process_.result.output.empty();
+  }
+  //--------------------------------
+  int exit_code() const
+  {
+    return process_.result.termination_code;
+  }
+  //--------------------------------
+  void do_work()
+  {
+    if (process_.result.output.empty() && process_.fut.has_value())
+      process_.fut->wait();
+    process_.result = process_.fut->get();
+  }
+  //-------------------------------
+  ProcessResult get_value() const
+  {
+    return process_.result;
+  }
+
+  //--------------------------------
+  //--------------------------------
+  private:
+  proc_wrap_t   process_;
+  pid_t         pid;
+  int           stdout_fds[2];
+  int           stderr_fds[2];
+};
 
 } //ns kiq
