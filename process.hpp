@@ -47,11 +47,15 @@ static std::string read_fd(int fd)
   std::string s;
   ssize_t r;
 
-  while (r = read(fd, buffer, buf_size) > 0)
-    s.append(buffer, r);
-
-  if (r < 0)
-    std::cerr << "Reading from fd returned error: " << std::strerror(errno) << std::endl;
+  do
+  {
+    r = read(fd, buffer, buf_size);
+    if (r)
+      s.append(buffer, r);
+    else
+    if (r < 0)
+      std::cerr << "Reading from fd returned error: " << std::strerror(errno) << std::endl;
+  } while (r > 0);
 
   return s;
 }
