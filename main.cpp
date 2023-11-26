@@ -6,8 +6,8 @@
 int main(int argc, char** argv)
 {
 
-  kiq::ProcessResult result = kiq::qx({"./test_application.sh"});
-
+  kiq::proc_wrap_t   process = kiq::qx({"./test_application.sh"});
+  kiq::ProcessResult result  = process.result;
   if (result.error)
     throw std::runtime_error{"Process failed"};
 
