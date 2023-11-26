@@ -220,6 +220,11 @@ struct process
     process_.result = process_.fut->get();
   }
   //-------------------------------
+  std::string get_error() const
+  {
+    return process_.result.err_msg;
+  }
+  //-------------------------------
   ProcessResult get_value() const
   {
     return process_.result;

@@ -6,10 +6,17 @@
 int main(int argc, char** argv)
 {
 
-  kiq::proc_wrap_t   process = kiq::qx({"./test_application.sh"});
-  kiq::ProcessResult result  = process.result;
-  if (result.error)
-    throw std::runtime_error{"Process failed"};
+  kiq::process process = kiq::process({"./test_application.sh"});
+  if (process.has_work())
+    process.do_work();
+
+  if (process.has_error())
+  {
+    std::cerr << "Process failed with error: " << process.get_error() << std::endl;
+    return 1;
+  }
+
+  kiq::ProcessResult result  = process.get_value();
 
   std::cout << "Result is\n\n" << result.output << std::endl;
 
