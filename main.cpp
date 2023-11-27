@@ -5,7 +5,7 @@
 
 int main(int argc, char** argv)
 {
-  kiq::args_t args            = {"test_application.sh"};
+  kiq::args_t args            = {"./test_application.sh"};
   int         timeout         = 30;
   bool        kill_on_timeout = true;
   bool        handle_process  = false;
