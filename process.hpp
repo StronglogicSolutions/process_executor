@@ -12,7 +12,7 @@
 #include <optional>
 
 namespace kiq {
-struct ProcessResult
+struct proc_result_t
 {
   std::string output;
   bool        error{false};
@@ -21,12 +21,12 @@ struct ProcessResult
 };
 
 using args_t     = std::vector<std::string>;
-using proc_fut_t = std::future<ProcessResult>;
+using proc_fut_t = std::future<proc_result_t>;
 using opt_fut_t  = std::optional<proc_fut_t>;
 
 struct proc_wrap_t
 {
-  ProcessResult result;
+  proc_result_t result;
   opt_fut_t     fut;
 };
 //--------------------------------------------------------------------
@@ -91,9 +91,9 @@ static proc_wrap_t qx(const args_t&      args,
   close(stdout_fds[1]);
   close(stderr_fds[1]);
 
-  auto handler = [pid, &stdout_fds, &stderr_fds, timeout_sec, kill_on_timeout]
+  auto handler = [pid, stdout_fds, stderr_fds, timeout_sec, kill_on_timeout]
   {
-    ProcessResult result;
+    proc_result_t result;
     pollfd        poll_fds[2] {
       pollfd{
         .fd      = stdout_fds[0] & 0xFF,
@@ -225,7 +225,7 @@ struct process
     return process_.result.err_msg;
   }
   //-------------------------------
-  ProcessResult get_value() const
+  proc_result_t get() const
   {
     return process_.result;
   }
